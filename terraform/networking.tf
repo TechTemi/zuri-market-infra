@@ -75,29 +75,35 @@ resource "aws_security_group" "k3s" {
     cidr_blocks = [var.allowed_app_cidr]
   }
 
-egress {
-  description = "Allow outbound HTTPS for DockerHub, AWS APIs, package downloads, and Secrets Manager"
-  from_port   = 443
-  to_port     = 443
-  protocol    = "tcp"
-  cidr_blocks = ["0.0.0.0/0"]
-}
+  # trivy:ignore:AVD-AWS-0104
+  # Required for single-node capstone k3s host to reach AWS APIs, AWS Secrets Manager, DockerHub, and package repositories over HTTPS.
+  egress {
+    description = "Allow outbound HTTPS for DockerHub, AWS APIs, package downloads, and Secrets Manager"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
-egress {
-  description = "Allow outbound HTTP for package repository redirects and bootstrap downloads"
-  from_port   = 80
-  to_port     = 80
-  protocol    = "tcp"
-  cidr_blocks = ["0.0.0.0/0"]
-}
+  # trivy:ignore:AVD-AWS-0104
+  # Required during EC2 bootstrap for package repository redirects and installation scripts.
+  egress {
+    description = "Allow outbound HTTP for package repository redirects and bootstrap downloads"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
-egress {
-  description = "Allow outbound DNS queries"
-  from_port   = 53
-  to_port     = 53
-  protocol    = "udp"
-  cidr_blocks = ["0.0.0.0/0"]
-}
+  # trivy:ignore:AVD-AWS-0104
+  # Required for DNS resolution from the k3s node.
+  egress {
+    description = "Allow outbound DNS queries"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-k3s-sg"
