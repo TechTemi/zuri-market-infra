@@ -1,0 +1,15 @@
+﻿aws_region       = "us-east-1"
+project_name     = "zuri-market"
+environment      = "dev"
+instance_type    = "t3.small"
+
+public_key_path  = "C:/Users/Temi/.ssh/zuri-k3s.pub"
+private_key_path = "C:/Users/Temi/.ssh/zuri-k3s"
+
+# Replace with your public IP plus /32.
+# You can get it with: curl.exe https://checkip.amazonaws.com
+allowed_ssh_cidr = "YOUR_PUBLIC_IP/32"
+
+# For Demo Day you can use 0.0.0.0/0.
+# For safer testing, use your own public IP with /32.
+allowed_app_cidr = "0.0.0.0/0"

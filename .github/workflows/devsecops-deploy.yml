@@ -1,0 +1,318 @@
+name: Zuri Market DevSecOps CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  BACKEND_REPO: TechTemi/zuriapp-backend
+  FRONTEND_REPO: TechTemi/zuriapp-frontend
+
+  BACKEND_IMAGE: temidev/zuriapp-backend
+  FRONTEND_IMAGE: temidev/zuriapp-frontend
+
+  KUBE_NAMESPACE: zuri-market
+  FRONTEND_BUILD_API_URL: http://localhost:5000
+  FRONTEND_BUILD_STORE_NAME: Zuri Market
+
+jobs:
+  test:
+    name: Test application code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout infrastructure repo
+        uses: actions/checkout@v4
+
+      - name: Checkout backend repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BACKEND_REPO }}
+          path: zuriapp-backend
+
+      - name: Checkout frontend repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FRONTEND_REPO }}
+          path: zuriapp-frontend
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Backend install dependencies
+        working-directory: zuriapp-backend
+        run: npm ci
+
+      - name: Backend syntax check
+        working-directory: zuriapp-backend
+        run: node --check server.js
+
+      - name: Backend dependency gate
+        working-directory: zuriapp-backend
+        run: npm audit --audit-level=critical
+
+      - name: Frontend install dependencies
+        working-directory: zuriapp-frontend
+        run: npm ci
+
+      - name: Frontend build test
+        working-directory: zuriapp-frontend
+        run: npm run build
+
+      - name: Frontend dependency gate
+        working-directory: zuriapp-frontend
+        run: npm audit --audit-level=critical
+
+  scan:
+    name: Scan code, secrets, Terraform, and Kubernetes
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout infrastructure repo
+        uses: actions/checkout@v4
+
+      - name: Checkout backend repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BACKEND_REPO }}
+          path: zuriapp-backend
+
+      - name: Checkout frontend repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FRONTEND_REPO }}
+          path: zuriapp-frontend
+
+      - name: Trivy scan backend filesystem
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scan-ref: zuriapp-backend
+          scanners: vuln,secret
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Trivy scan frontend filesystem
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scan-ref: zuriapp-frontend
+          scanners: vuln,secret
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Trivy scan Terraform and Kubernetes manifests
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret,misconfig
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify AWS Secrets Manager runtime secret exists
+        run: |
+          aws secretsmanager describe-secret \
+            --secret-id "${{ vars.AWS_SECRET_NAME }}" \
+            --region "${{ vars.AWS_REGION }}" \
+            --query "{Name:Name,ARN:ARN,LastChangedDate:LastChangedDate}"
+
+  build_scan_push:
+    name: Build, image scan, and push
+    runs-on: ubuntu-latest
+    needs: scan
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+
+    steps:
+      - name: Checkout infrastructure repo
+        uses: actions/checkout@v4
+
+      - name: Checkout backend repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BACKEND_REPO }}
+          path: zuriapp-backend
+
+      - name: Checkout frontend repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FRONTEND_REPO }}
+          path: zuriapp-frontend
+
+      - name: Set image tag
+        id: meta
+        run: |
+          IMAGE_TAG="${GITHUB_SHA::7}"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build backend image locally
+        run: |
+          docker build \
+            -t $BACKEND_IMAGE:$IMAGE_TAG \
+            -t $BACKEND_IMAGE:latest \
+            ./zuriapp-backend
+
+      - name: Build frontend image locally
+        run: |
+          docker build \
+            --build-arg VITE_API_URL="${FRONTEND_BUILD_API_URL}" \
+            --build-arg VITE_STORE_NAME="${FRONTEND_BUILD_STORE_NAME}" \
+            -t $FRONTEND_IMAGE:$IMAGE_TAG \
+            -t $FRONTEND_IMAGE:latest \
+            ./zuriapp-frontend
+
+      - name: Trivy scan backend image
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: ${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Trivy scan frontend image
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: ${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push backend image
+        run: |
+          docker push $BACKEND_IMAGE:$IMAGE_TAG
+          docker push $BACKEND_IMAGE:latest
+
+      - name: Push frontend image
+        run: |
+          docker push $FRONTEND_IMAGE:$IMAGE_TAG
+          docker push $FRONTEND_IMAGE:latest
+
+  deploy:
+    name: Deploy to k3s
+    runs-on: ubuntu-latest
+    needs: build_scan_push
+
+    steps:
+      - name: Checkout infrastructure repo
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Detect GitHub runner public IP
+        id: runner_ip
+        run: |
+          RUNNER_IP=$(curl -s https://checkip.amazonaws.com | tr -d '\n')
+          echo "RUNNER_IP=$RUNNER_IP" >> "$GITHUB_ENV"
+          echo "RUNNER_CIDR=$RUNNER_IP/32" >> "$GITHUB_ENV"
+          echo "GitHub runner IP detected."
+
+      - name: Temporarily allow GitHub runner to k3s API
+        run: |
+          aws ec2 authorize-security-group-ingress \
+            --group-id "${{ vars.K3S_SECURITY_GROUP_ID }}" \
+            --protocol tcp \
+            --port 6443 \
+            --cidr "$RUNNER_CIDR" || true
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Write kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Verify k3s access
+        run: |
+          kubectl get nodes
+          kubectl get all -n $KUBE_NAMESPACE
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -k kubernetes
+
+      - name: Deploy backend image tag
+        run: |
+          kubectl set image deployment/zuri-backend \
+            zuri-backend=$BACKEND_IMAGE:${{ needs.build_scan_push.outputs.image_tag }} \
+            -n $KUBE_NAMESPACE
+
+      - name: Deploy frontend image tag
+        run: |
+          kubectl set image deployment/zuri-frontend \
+            zuri-frontend=$FRONTEND_IMAGE:${{ needs.build_scan_push.outputs.image_tag }} \
+            -n $KUBE_NAMESPACE
+
+      - name: Ensure backend uses AWS Secrets Manager
+        run: |
+          kubectl set env deployment/zuri-backend \
+            AWS_REGION=${{ vars.AWS_REGION }} \
+            AWS_SECRET_NAME=${{ vars.AWS_SECRET_NAME }} \
+            -n $KUBE_NAMESPACE
+
+      - name: Wait for backend rollout
+        run: |
+          kubectl rollout status deployment/zuri-backend -n $KUBE_NAMESPACE --timeout=180s
+
+      - name: Wait for frontend rollout
+        run: |
+          kubectl rollout status deployment/zuri-frontend -n $KUBE_NAMESPACE --timeout=180s
+
+      - name: Verify AWS Secrets Manager runtime injection
+        run: |
+          kubectl logs -n $KUBE_NAMESPACE deployment/zuri-backend --tail=100 | grep "Runtime config loaded from AWS Secrets Manager"
+
+      - name: Smoke test public app API
+        run: |
+          APP_URL="http://${{ vars.K3S_PUBLIC_IP }}:30080"
+
+          curl --fail "$APP_URL/api/store"
+          curl --fail "$APP_URL/api/products"
+
+      - name: Remove temporary k3s API firewall rule
+        if: always()
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "${{ vars.K3S_SECURITY_GROUP_ID }}" \
+            --protocol tcp \
+            --port 6443 \
+            --cidr "$RUNNER_CIDR" || true
