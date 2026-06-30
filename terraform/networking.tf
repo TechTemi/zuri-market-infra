@@ -75,33 +75,39 @@ resource "aws_security_group" "k3s" {
     cidr_blocks = [var.allowed_app_cidr]
   }
 
-  # trivy:ignore:AVD-AWS-0104
-  # Required for single-node capstone k3s host to reach AWS APIs, AWS Secrets Manager, DockerHub, and package repositories over HTTPS.
+  # Risk accepted for capstone single-node k3s host.
+  # Justification: outbound HTTPS is required for DockerHub image pulls, AWS Secrets Manager, AWS APIs, and package repositories.
+  # Compensating controls: egress is limited to TCP 443, inbound SSH/API is restricted, and IAM is scoped to Zuri Market secrets.
   egress {
     description = "Allow outbound HTTPS for DockerHub, AWS APIs, package downloads, and Secrets Manager"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
+    #trivy:ignore:AVD-AWS-0104 trivy:ignore:AWS-0104
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # trivy:ignore:AVD-AWS-0104
-  # Required during EC2 bootstrap for package repository redirects and installation scripts.
+  # Risk accepted for capstone single-node k3s bootstrap.
+  # Justification: outbound HTTP is required during bootstrap for installation scripts and package repository redirects.
+  # Compensating controls: limited to TCP 80 only; production replacement would use approved package mirrors or controlled egress.
   egress {
     description = "Allow outbound HTTP for package repository redirects and bootstrap downloads"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
+    #trivy:ignore:AVD-AWS-0104 trivy:ignore:AWS-0104
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # trivy:ignore:AVD-AWS-0104
-  # Required for DNS resolution from the k3s node.
+  # Risk accepted for capstone single-node k3s host.
+  # Justification: outbound DNS is required so the node can resolve DockerHub, AWS, and package repository endpoints.
+  # Compensating controls: limited to UDP 53 only; production replacement would use VPC DNS controls and private endpoints where possible.
   egress {
     description = "Allow outbound DNS queries"
     from_port   = 53
     to_port     = 53
     protocol    = "udp"
+    #trivy:ignore:AVD-AWS-0104 trivy:ignore:AWS-0104
     cidr_blocks = ["0.0.0.0/0"]
   }
 
