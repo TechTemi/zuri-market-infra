@@ -2,3 +2,7 @@
 kind: Namespace
 metadata:
   name: zuri-market
+  labels:
+    app.kubernetes.io/name: zuri-market
+    demo.zuri-market/runtime-cluster: runtime-k3s-cluster
+    demo.zuri-market/reviewer-test: enabled

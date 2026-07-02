@@ -1,0 +1,48 @@
+﻿apiVersion: batch/v1
+kind: Job
+metadata:
+  name: zuri-scale-after-3-mins
+  namespace: zuri-market
+  labels:
+    app.kubernetes.io/name: zuri-market
+    demo.zuri-market/runtime-cluster: runtime-k3s-cluster
+    demo.zuri-market/feature: timed-scale-up
+    demo.zuri-market/scale-after: "3-minutes"
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: zuri-market
+        demo.zuri-market/runtime-cluster: runtime-k3s-cluster
+        demo.zuri-market/feature: timed-scale-up
+    spec:
+      serviceAccountName: zuri-runtime-automation
+      restartPolicy: Never
+      containers:
+        - name: scale-after-3-mins
+          image: bitnami/kubectl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eux
+
+              echo "Timed scale-up Job started."
+              echo "Waiting 180 seconds before adding one extra pod to each deployment."
+              sleep 180
+
+              kubectl -n zuri-market patch deployment zuri-backend -p '{"spec":{"template":{"metadata":{"labels":{"demo.zuri-market/scaled-after-3-mins":"true","demo.zuri-market/runtime-cluster":"runtime-k3s-cluster"}}}}}'
+
+              kubectl -n zuri-market patch deployment zuri-frontend -p '{"spec":{"template":{"metadata":{"labels":{"demo.zuri-market/scaled-after-3-mins":"true","demo.zuri-market/runtime-cluster":"runtime-k3s-cluster"}}}}}'
+
+              kubectl -n zuri-market scale deployment/zuri-backend --replicas=2
+              kubectl -n zuri-market scale deployment/zuri-frontend --replicas=2
+
+              kubectl -n zuri-market rollout status deployment/zuri-backend --timeout=180s
+              kubectl -n zuri-market rollout status deployment/zuri-frontend --timeout=180s
+
+              echo "Timed scale-up complete."
+              kubectl -n zuri-market get deployments
+              kubectl -n zuri-market get pods --show-labels

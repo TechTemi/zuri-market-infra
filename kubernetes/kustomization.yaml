@@ -9,3 +9,6 @@ resources:
   - frontend-nginx-configmap.yaml
   - frontend-deployment.yaml
   - frontend-service.yaml
+  - automation-rbac.yaml
+  - timed-scale-job.yaml
+  - deployment-reconciler-cronjob.yaml
