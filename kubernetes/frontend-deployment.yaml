@@ -5,8 +5,14 @@ metadata:
   namespace: zuri-market
   labels:
     app: zuri-frontend
+    app.kubernetes.io/name: zuri-market
+    app.kubernetes.io/component: frontend
+    demo.zuri-market/runtime-cluster: runtime-k3s-cluster
+    demo.zuri-market/initial-replicas: "1"
+    demo.zuri-market/auto-scale-after: "3-minutes"
+    demo.zuri-market/reconciler-managed: "true"
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: zuri-frontend
@@ -14,6 +20,10 @@ spec:
     metadata:
       labels:
         app: zuri-frontend
+        app.kubernetes.io/name: zuri-market
+        app.kubernetes.io/component: frontend
+        demo.zuri-market/runtime-cluster: runtime-k3s-cluster
+        demo.zuri-market/initial-replicas: "1"
     spec:
       containers:
         - name: zuri-frontend

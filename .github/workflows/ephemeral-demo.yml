@@ -1,0 +1,569 @@
+﻿name: Zuri Market Ephemeral DevSecOps Demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_auto_destroy:
+        description: "Type DESTROY-AFTER-15 to confirm this demo will auto-destroy AWS infrastructure."
+        required: true
+        default: "DESTROY-AFTER-15"
+      auto_destroy_minutes:
+        description: "Minutes after runtime launch before terraform destroy runs."
+        required: true
+        default: "15"
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT_NAME: zuri-market
+  K8S_NAMESPACE: zuri-market
+
+  BACKEND_REPO: TechTemi/zuriapp-backend
+  FRONTEND_REPO: TechTemi/zuriapp-frontend
+
+  BACKEND_IMAGE: temidev/zuriapp-backend
+  FRONTEND_IMAGE: temidev/zuriapp-frontend
+
+  FRONTEND_BUILD_API_URL: http://localhost:5000
+  FRONTEND_BUILD_STORE_NAME: Zuri Market
+
+jobs:
+  ephemeral-demo:
+    name: Provision, Verify, Scale, Self-Heal, and Auto-Destroy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Confirm auto-destroy acknowledgement
+        run: |
+          if [ "${{ github.event.inputs.confirm_auto_destroy }}" != "DESTROY-AFTER-15" ]; then
+            echo "You must type DESTROY-AFTER-15 to run this ephemeral demo."
+            exit 1
+          fi
+
+          echo "::notice title=Ephemeral Demo Confirmed::This workflow will create temporary AWS infrastructure and destroy it automatically after runtime verification."
+
+      - name: Checkout infrastructure repo
+        uses: actions/checkout@v4
+
+      - name: Checkout backend repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BACKEND_REPO }}
+          path: zuriapp-backend
+
+      - name: Checkout frontend repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FRONTEND_REPO }}
+          path: zuriapp-frontend
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Backend install and smoke test
+        working-directory: zuriapp-backend
+        run: |
+          npm ci || npm install
+          node --check server.js
+          npm test --if-present
+
+      - name: Frontend install and build
+        working-directory: zuriapp-frontend
+        run: |
+          npm ci || npm install
+          npm test --if-present
+          npm run build
+
+      - name: Trivy scan backend filesystem
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: zuriapp-backend
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+          format: table
+
+      - name: Trivy scan frontend filesystem
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: zuriapp-frontend
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+          format: table
+
+      - name: Trivy scan infrastructure repo
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret,misconfig
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+          format: table
+
+      - name: Checkov Terraform scan
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform
+          quiet: true
+          soft_fail: true
+
+      - name: Install kubectl for manifest render check
+        uses: azure/setup-kubectl@v4
+
+      - name: Validate Kubernetes kustomize render
+        run: |
+          kubectl kustomize kubernetes > /tmp/zuri-rendered.yaml
+          grep "kind: Job" /tmp/zuri-rendered.yaml
+          grep "kind: CronJob" /tmp/zuri-rendered.yaml
+          grep "zuri-scale-after-3-mins" /tmp/zuri-rendered.yaml
+          grep "zuri-deployment-reconciler" /tmp/zuri-rendered.yaml
+          echo "Kubernetes manifests rendered successfully."
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set image tag
+        id: image_meta
+        run: |
+          IMAGE_TAG="${GITHUB_SHA::7}"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "Using image tag: $IMAGE_TAG"
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: zuriapp-backend
+          push: true
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:latest
+            ${{ env.BACKEND_IMAGE }}:${{ steps.image_meta.outputs.image_tag }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: zuriapp-frontend
+          push: true
+          build-args: |
+            VITE_API_URL=${{ env.FRONTEND_BUILD_API_URL }}
+            VITE_STORE_NAME=${{ env.FRONTEND_BUILD_STORE_NAME }}
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.FRONTEND_IMAGE }}:${{ steps.image_meta.outputs.image_tag }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        working-directory: terraform
+        run: terraform init -input=false
+
+      - name: Terraform format check
+        working-directory: terraform
+        run: terraform fmt -check
+
+      - name: Terraform validate
+        working-directory: terraform
+        run: terraform validate
+
+      - name: Generate ephemeral SSH key for Terraform
+        working-directory: terraform
+        run: |
+          ssh-keygen -t ed25519 -f zuri-demo-key -N "" -C "github-actions-zuri-demo"
+          chmod 600 zuri-demo-key
+          ls -la zuri-demo-key zuri-demo-key.pub
+
+      - name: Terraform apply temporary runtime infrastructure
+        id: terraform_apply
+        working-directory: terraform
+        run: |
+          terraform apply -auto-approve \
+            -var="aws_region=${AWS_REGION}" \
+            -var="project_name=${PROJECT_NAME}" \
+            -var="environment=dev" \
+            -var="public_key_path=zuri-demo-key.pub" \
+            -var="private_key_path=zuri-demo-key" \
+            -var="allowed_ssh_cidr=${{ vars.ALLOWED_SSH_CIDR }}" \
+            -var="allowed_app_cidr=0.0.0.0/0"
+
+          INSTANCE_ID="$(terraform output -raw instance_id)"
+          PUBLIC_IP="$(terraform output -raw public_ip)"
+          APP_URL="$(terraform output -raw app_url)"
+
+          echo "INSTANCE_ID=$INSTANCE_ID" >> "$GITHUB_ENV"
+          echo "PUBLIC_IP=$PUBLIC_IP" >> "$GITHUB_ENV"
+          echo "APP_URL=$APP_URL" >> "$GITHUB_ENV"
+
+          echo "Terraform created EC2 instance: $INSTANCE_ID"
+          echo "Public IP: $PUBLIC_IP"
+          echo "Application URL: $APP_URL"
+
+      - name: Wait for EC2 instance to appear in AWS Systems Manager
+        run: |
+          echo "Waiting for EC2 instance to become available as an SSM managed node..."
+
+          for i in {1..30}; do
+            PING_STATUS=$(aws ssm describe-instance-information \
+              --query "InstanceInformationList[?InstanceId=='${INSTANCE_ID}'].PingStatus | [0]" \
+              --output text)
+
+            echo "Attempt $i: SSM PingStatus=$PING_STATUS"
+
+            if [ "$PING_STATUS" = "Online" ]; then
+              echo "Instance is online in Systems Manager."
+              exit 0
+            fi
+
+            sleep 20
+          done
+
+          echo "Instance did not become online in Systems Manager."
+          echo "Check that the EC2 instance profile includes AmazonSSMManagedInstanceCore and that the SSM agent is running."
+          exit 1
+
+      - name: Deploy Kubernetes workloads through AWS Systems Manager
+        id: deploy_runtime
+        run: |
+          cat > ssm-deploy-params.json <<'JSON'
+          {
+            "commands": [
+              "set -eux",
+              "sudo systemctl is-active k3s",
+              "sudo rm -rf /opt/zuri-market-infra",
+              "sudo git clone --branch '${{ github.ref_name }}' https://github.com/TechTemi/zuri-market-infra.git /opt/zuri-market-infra",
+              "cd /opt/zuri-market-infra",
+              "sudo k3s kubectl apply -k kubernetes/",
+              "sudo k3s kubectl set image deployment/zuri-backend zuri-backend=temidev/zuriapp-backend:${{ steps.image_meta.outputs.image_tag }} -n zuri-market || true",
+              "sudo k3s kubectl set image deployment/zuri-frontend zuri-frontend=temidev/zuriapp-frontend:${{ steps.image_meta.outputs.image_tag }} -n zuri-market || true",
+              "sudo k3s kubectl rollout status deployment/zuri-backend -n zuri-market --timeout=180s",
+              "sudo k3s kubectl rollout status deployment/zuri-frontend -n zuri-market --timeout=180s",
+              "sudo k3s kubectl get nodes -o wide",
+              "sudo k3s kubectl get all -n zuri-market",
+              "sudo k3s kubectl get pods -n zuri-market --show-labels"
+            ]
+          }
+          JSON
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy Zuri Market runtime-k3s-cluster workloads" \
+            --parameters file://ssm-deploy-params.json \
+            --region "$AWS_REGION" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "DEPLOY_COMMAND_ID=$COMMAND_ID" >> "$GITHUB_ENV"
+          echo "SSM deploy command sent: $COMMAND_ID"
+
+      - name: Print initial runtime verification output
+        run: |
+          aws ssm wait command-executed \
+            --command-id "$DEPLOY_COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" || true
+
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$DEPLOY_COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "Status" \
+            --output text)
+
+          echo "===== Initial Runtime Verification Output ====="
+
+          aws ssm get-command-invocation \
+            --command-id "$DEPLOY_COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "StandardOutputContent" \
+            --output text
+
+          echo "===== Runtime Verification Errors, if any ====="
+
+          aws ssm get-command-invocation \
+            --command-id "$DEPLOY_COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "StandardErrorContent" \
+            --output text
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "SSM deployment command failed with status: $STATUS"
+            exit 1
+          fi
+
+      - name: Mark runtime launch time and preannounce auto-destroy
+        id: runtime_launch
+        run: |
+          RUNTIME_LAUNCH_EPOCH=$(date +%s)
+          AUTO_DESTROY_SECONDS=$(( ${{ github.event.inputs.auto_destroy_minutes }} * 60 ))
+          DESTROY_EPOCH=$(( RUNTIME_LAUNCH_EPOCH + AUTO_DESTROY_SECONDS ))
+
+          RUNTIME_LAUNCH_UTC=$(date -u -d "@$RUNTIME_LAUNCH_EPOCH" +"%Y-%m-%d %H:%M:%S UTC")
+          DESTROY_UTC=$(date -u -d "@$DESTROY_EPOCH" +"%Y-%m-%d %H:%M:%S UTC")
+
+          echo "RUNTIME_LAUNCH_EPOCH=$RUNTIME_LAUNCH_EPOCH" >> "$GITHUB_ENV"
+          echo "DESTROY_EPOCH=$DESTROY_EPOCH" >> "$GITHUB_ENV"
+          echo "DESTROY_UTC=$DESTROY_UTC" >> "$GITHUB_ENV"
+
+          echo "::notice title=Runtime Launched::runtime-k3s-cluster launched at $RUNTIME_LAUNCH_UTC."
+          echo "::warning title=Auto Destroy Preannouncement::Terraform destroy is scheduled for $DESTROY_UTC, which is ${{ github.event.inputs.auto_destroy_minutes }} minutes after runtime launch."
+
+      - name: Verify initial one-replica state
+        run: |
+          cat > ssm-initial-replicas.json <<'JSON'
+          {
+            "commands": [
+              "set -eux",
+              "sudo k3s kubectl get deployment zuri-backend -n zuri-market",
+              "sudo k3s kubectl get deployment zuri-frontend -n zuri-market",
+              "BACKEND_READY=$(sudo k3s kubectl get deployment zuri-backend -n zuri-market -o jsonpath='{.status.readyReplicas}')",
+              "FRONTEND_READY=$(sudo k3s kubectl get deployment zuri-frontend -n zuri-market -o jsonpath='{.status.readyReplicas}')",
+              "echo Initial backend ready replicas: ${BACKEND_READY:-0}",
+              "echo Initial frontend ready replicas: ${FRONTEND_READY:-0}",
+              "sudo k3s kubectl get pods -n zuri-market --show-labels"
+            ]
+          }
+          JSON
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Verify initial one-replica state" \
+            --parameters file://ssm-initial-replicas.json \
+            --region "$AWS_REGION" \
+            --query "Command.CommandId" \
+            --output text)
+
+          aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" || true
+
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "StandardOutputContent" \
+            --output text
+
+      - name: Wait and verify timed scale-up after 3 minutes
+        run: |
+          echo "Waiting for timed scale-up Job to complete."
+          sleep 240
+
+          cat > ssm-scale-check.json <<'JSON'
+          {
+            "commands": [
+              "set -eux",
+              "sudo k3s kubectl get job zuri-scale-after-3-mins -n zuri-market",
+              "sudo k3s kubectl get deployments -n zuri-market",
+              "sudo k3s kubectl rollout status deployment/zuri-backend -n zuri-market --timeout=180s",
+              "sudo k3s kubectl rollout status deployment/zuri-frontend -n zuri-market --timeout=180s",
+              "BACKEND_READY=$(sudo k3s kubectl get deployment zuri-backend -n zuri-market -o jsonpath='{.status.readyReplicas}')",
+              "FRONTEND_READY=$(sudo k3s kubectl get deployment zuri-frontend -n zuri-market -o jsonpath='{.status.readyReplicas}')",
+              "echo Backend ready replicas after timed scale-up: ${BACKEND_READY:-0}",
+              "echo Frontend ready replicas after timed scale-up: ${FRONTEND_READY:-0}",
+              "test ${BACKEND_READY:-0} -ge 2",
+              "test ${FRONTEND_READY:-0} -ge 2",
+              "sudo k3s kubectl get pods -n zuri-market -l demo.zuri-market/scaled-after-3-mins=true --show-labels"
+            ]
+          }
+          JSON
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Verify timed scale-up after 3 minutes" \
+            --parameters file://ssm-scale-check.json \
+            --region "$AWS_REGION" \
+            --query "Command.CommandId" \
+            --output text)
+
+          aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" || true
+
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "Status" \
+            --output text)
+
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "StandardOutputContent" \
+            --output text
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "Timed scale-up verification failed with status: $STATUS"
+            exit 1
+          fi
+
+      - name: Delete deployments and verify self-healing within 3-minute reconciliation window
+        run: |
+          cat > ssm-self-heal-check.json <<'JSON'
+          {
+            "commands": [
+              "set -eux",
+              "echo Deleting frontend and backend deployments to test self-healing.",
+              "sudo k3s kubectl delete deployment zuri-backend zuri-frontend -n zuri-market",
+              "echo Waiting 240 seconds for the 3-minute reconciler window.",
+              "sleep 240",
+              "sudo k3s kubectl get cronjob zuri-deployment-reconciler -n zuri-market",
+              "sudo k3s kubectl get jobs -n zuri-market",
+              "sudo k3s kubectl rollout status deployment/zuri-backend -n zuri-market --timeout=180s",
+              "sudo k3s kubectl rollout status deployment/zuri-frontend -n zuri-market --timeout=180s",
+              "sudo k3s kubectl get deployments -n zuri-market --show-labels",
+              "sudo k3s kubectl get pods -n zuri-market --show-labels",
+              "sudo k3s kubectl get pods -n zuri-market -l demo.zuri-market/recreated-by-reconciler=true --show-labels"
+            ]
+          }
+          JSON
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Delete deployments and verify reconciler restores them" \
+            --parameters file://ssm-self-heal-check.json \
+            --region "$AWS_REGION" \
+            --query "Command.CommandId" \
+            --output text)
+
+          aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" || true
+
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "Status" \
+            --output text)
+
+          echo "===== Self-Healing Verification Output ====="
+
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "StandardOutputContent" \
+            --output text
+
+          echo "===== Self-Healing Errors, if any ====="
+
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "StandardErrorContent" \
+            --output text
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "Self-healing verification failed with status: $STATUS"
+            exit 1
+          fi
+
+      - name: Verify application endpoints
+        run: |
+          cat > ssm-endpoint-check.json <<'JSON'
+          {
+            "commands": [
+              "set -eux",
+              "curl -fsS http://localhost:30080/",
+              "curl -fsS http://localhost:30080/api/products",
+              "sudo k3s kubectl get svc -n zuri-market",
+              "sudo k3s kubectl get all -n zuri-market"
+            ]
+          }
+          JSON
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Verify Zuri Market app endpoints" \
+            --parameters file://ssm-endpoint-check.json \
+            --region "$AWS_REGION" \
+            --query "Command.CommandId" \
+            --output text)
+
+          aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" || true
+
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "Status" \
+            --output text)
+
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "StandardOutputContent" \
+            --output text
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "Endpoint verification failed with status: $STATUS"
+            exit 1
+          fi
+
+      - name: Wait until 15-minute auto-destroy point
+        if: always()
+        run: |
+          if [ -z "${DESTROY_EPOCH:-}" ]; then
+            echo "Runtime launch was not recorded. Skipping timed wait."
+            exit 0
+          fi
+
+          NOW=$(date +%s)
+          REMAINING=$(( DESTROY_EPOCH - NOW ))
+
+          echo "::warning title=Auto Destroy Still Scheduled::Terraform destroy remains scheduled for $DESTROY_UTC."
+
+          if [ "$REMAINING" -gt 60 ]; then
+            WAIT_BEFORE_FINAL_WARNING=$(( REMAINING - 60 ))
+            echo "Waiting $WAIT_BEFORE_FINAL_WARNING seconds before final one-minute destroy warning."
+            sleep "$WAIT_BEFORE_FINAL_WARNING"
+          fi
+
+          echo "::warning title=Final Destroy Warning::AWS infrastructure will be destroyed in approximately 60 seconds."
+          sleep 60
+
+      - name: Terraform destroy temporary runtime infrastructure
+        if: always()
+        working-directory: terraform
+        run: |
+          echo "::warning title=Terraform Destroy Starting::Destroying all temporary AWS infrastructure managed by this workflow."
+
+          terraform init -input=false
+
+          terraform destroy -auto-approve \
+            -var="aws_region=${AWS_REGION}" \
+            -var="project_name=${PROJECT_NAME}" \
+            -var="environment=dev" \
+            -var="public_key_path=zuri-demo-key.pub" \
+            -var="private_key_path=zuri-demo-key" \
+            -var="allowed_ssh_cidr=${{ vars.ALLOWED_SSH_CIDR }}" \
+            -var="allowed_app_cidr=0.0.0.0/0"
+
+          echo "::notice title=Terraform Destroy Complete::Temporary Zuri Market AWS infrastructure has been destroyed."
