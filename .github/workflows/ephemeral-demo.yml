@@ -19,6 +19,7 @@ permissions:
 env:
   AWS_REGION: us-east-1
   PROJECT_NAME: zuri-market
+  TF_ENVIRONMENT: demo-${{ github.run_id }}
   K8S_NAMESPACE: zuri-market
 
   BACKEND_REPO: TechTemi/zuriapp-backend
@@ -203,7 +204,7 @@ jobs:
           terraform apply -auto-approve \
             -var="aws_region=${AWS_REGION}" \
             -var="project_name=${PROJECT_NAME}" \
-            -var="environment=dev" \
+            -var="environment=${TF_ENVIRONMENT}" \
             -var="public_key_path=zuri-demo-key.pub" \
             -var="private_key_path=zuri-demo-key" \
             -var="allowed_ssh_cidr=${{ vars.ALLOWED_SSH_CIDR }}" \
@@ -560,7 +561,7 @@ jobs:
           terraform destroy -auto-approve \
             -var="aws_region=${AWS_REGION}" \
             -var="project_name=${PROJECT_NAME}" \
-            -var="environment=dev" \
+            -var="environment=${TF_ENVIRONMENT}" \
             -var="public_key_path=zuri-demo-key.pub" \
             -var="private_key_path=zuri-demo-key" \
             -var="allowed_ssh_cidr=${{ vars.ALLOWED_SSH_CIDR }}" \
