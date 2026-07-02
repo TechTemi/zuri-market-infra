@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1180" viewBox="0 0 1800 1180">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#374151" />
+    </marker>
+    <style>
+      .title { font: 700 34px Arial, sans-serif; fill: #111827; }
+      .subtitle { font: 400 18px Arial, sans-serif; fill: #4b5563; }
+      .lane-title { font: 700 22px Arial, sans-serif; fill: #111827; }
+      .box-title { font: 700 17px Arial, sans-serif; fill: #111827; }
+      .box-text { font: 400 13px Arial, sans-serif; fill: #374151; }
+      .small { font: 400 12px Arial, sans-serif; fill: #4b5563; }
+      .aws { fill: #ff9900; }
+      .github { fill: #24292f; }
+      .docker { fill: #2496ed; }
+      .tf { fill: #7b42bc; }
+      .k8s { fill: #326ce5; }
+      .ssm { fill: #dd6b20; }
+      .green { fill: #10b981; }
+      .red { fill: #ef4444; }
+      .box { fill: white; stroke: #cbd5e1; stroke-width: 2; rx: 18; }
+      .lane { fill: #f8fafc; stroke: #e5e7eb; stroke-width: 2; rx: 24; }
+      .arrow { stroke: #374151; stroke-width: 3; marker-end: url(#arrow); fill: none; }
+      .dash { stroke: #6b7280; stroke-width: 2; stroke-dasharray: 8 8; marker-end: url(#arrow); fill: none; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1800" height="1180" fill="#ffffff"/>
+  <text x="60" y="60" class="title">Zuri Market DevSecOps Architecture — PR Merge Ephemeral Demo</text>
+  <text x="60" y="92" class="subtitle">Automated CI/CD, AWS Terraform provisioning, SSM-controlled k3s deployment, timed scale-up, self-healing proof, endpoint verification, and auto-destroy.</text>
+
+  <rect x="50" y="130" width="1700" height="160" class="lane"/>
+  <text x="80" y="170" class="lane-title">1. Developer and GitHub Control Plane</text>
+  <g transform="translate(90,195)">
+    <rect width="250" height="70" class="box"/>
+    <circle cx="35" cy="35" r="22" class="github"/><text x="28" y="41" fill="white" font-size="16" font-family="Arial">GH</text>
+    <text x="70" y="30" class="box-title">Feature Branch</text>
+    <text x="70" y="52" class="box-text">Reviewer demo update</text>
+  </g>
+  <g transform="translate(425,195)">
+    <rect width="260" height="70" class="box"/>
+    <circle cx="35" cy="35" r="22" fill="#6366f1"/><text x="28" y="41" fill="white" font-size="16" font-family="Arial">PR</text>
+    <text x="70" y="30" class="box-title">Pull Request</text>
+    <text x="70" y="52" class="box-text">Review gate before release</text>
+  </g>
+  <g transform="translate(770,195)">
+    <rect width="280" height="70" class="box"/>
+    <circle cx="35" cy="35" r="22" class="green"/><text x="25" y="41" fill="white" font-size="16" font-family="Arial">✓</text>
+    <text x="70" y="30" class="box-title">Merge to main</text>
+    <text x="70" y="52" class="box-text">Automatic workflow trigger</text>
+  </g>
+  <g transform="translate(1140,195)">
+    <rect width="330" height="70" class="box"/>
+    <circle cx="35" cy="35" r="22" class="github"/><text x="25" y="41" fill="white" font-size="15" font-family="Arial">GA</text>
+    <text x="70" y="30" class="box-title">GitHub Actions</text>
+    <text x="70" y="52" class="box-text">Zuri Market Ephemeral Demo</text>
+  </g>
+  <path d="M345 230 L415 230" class="arrow"/>
+  <path d="M690 230 L760 230" class="arrow"/>
+  <path d="M1055 230 L1130 230" class="arrow"/>
+
+  <rect x="50" y="320" width="1700" height="170" class="lane"/>
+  <text x="80" y="360" class="lane-title">2. CI, Security, and Image Supply Chain</text>
+  <g transform="translate(90,385)"><rect width="250" height="75" class="box"/><circle cx="35" cy="37" r="22" fill="#0ea5e9"/><text x="26" y="43" fill="white" font-size="15" font-family="Arial">JS</text><text x="70" y="32" class="box-title">App Tests</text><text x="70" y="55" class="box-text">npm checks and build</text></g>
+  <g transform="translate(410,385)"><rect width="270" height="75" class="box"/><circle cx="35" cy="37" r="22" fill="#059669"/><text x="23" y="43" fill="white" font-size="14" font-family="Arial">TR</text><text x="70" y="32" class="box-title">Trivy Scan</text><text x="70" y="55" class="box-text">Vulnerabilities and secrets</text></g>
+  <g transform="translate(750,385)"><rect width="270" height="75" class="box"/><circle cx="35" cy="37" r="22" fill="#8b5cf6"/><text x="21" y="43" fill="white" font-size="13" font-family="Arial">CK</text><text x="70" y="32" class="box-title">Checkov Scan</text><text x="70" y="55" class="box-text">Terraform guardrails</text></g>
+  <g transform="translate(1090,385)"><rect width="270" height="75" class="box"/><circle cx="35" cy="37" r="22" class="docker"/><text x="22" y="43" fill="white" font-size="13" font-family="Arial">DK</text><text x="70" y="32" class="box-title">Docker Build</text><text x="70" y="55" class="box-text">Frontend/backend images</text></g>
+  <g transform="translate(1430,385)"><rect width="260" height="75" class="box"/><circle cx="35" cy="37" r="22" class="docker"/><text x="20" y="43" fill="white" font-size="13" font-family="Arial">Hub</text><text x="70" y="32" class="box-title">DockerHub</text><text x="70" y="55" class="box-text">temidev image registry</text></g>
+  <path d="M340 422 L400 422" class="arrow"/><path d="M680 422 L740 422" class="arrow"/><path d="M1020 422 L1080 422" class="arrow"/><path d="M1360 422 L1420 422" class="arrow"/>
+  <path d="M1305 265 C1305 300 220 300 220 380" class="dash"/>
+
+  <rect x="50" y="520" width="1700" height="180" class="lane"/>
+  <text x="80" y="560" class="lane-title">3. AWS Infrastructure Provisioning with Terraform</text>
+  <g transform="translate(90,590)"><rect width="270" height="80" class="box"/><circle cx="38" cy="40" r="24" class="tf"/><text x="25" y="47" fill="white" font-size="14" font-family="Arial">TF</text><text x="75" y="34" class="box-title">Terraform Apply</text><text x="75" y="57" class="box-text">Unique demo-${{ github.run_id }}</text></g>
+  <g transform="translate(430,590)"><rect width="275" height="80" class="box"/><circle cx="38" cy="40" r="24" class="aws"/><text x="25" y="47" fill="white" font-size="13" font-family="Arial">AWS</text><text x="75" y="34" class="box-title">Network</text><text x="75" y="57" class="box-text">VPC, subnet, SG, EIP</text></g>
+  <g transform="translate(775,590)"><rect width="275" height="80" class="box"/><circle cx="38" cy="40" r="24" class="aws"/><text x="23" y="47" fill="white" font-size="13" font-family="Arial">IAM</text><text x="75" y="34" class="box-title">IAM Profile</text><text x="75" y="57" class="box-text">SSM managed instance</text></g>
+  <g transform="translate(1120,590)"><rect width="295" height="80" class="box"/><circle cx="38" cy="40" r="24" class="aws"/><text x="24" y="47" fill="white" font-size="13" font-family="Arial">EC2</text><text x="75" y="34" class="box-title">EC2 k3s Runtime</text><text x="75" y="57" class="box-text">cloud-init installs k3s</text></g>
+  <g transform="translate(1490,590)"><rect width="200" height="80" class="box"/><circle cx="38" cy="40" r="24" class="ssm"/><text x="23" y="47" fill="white" font-size="13" font-family="Arial">SSM</text><text x="75" y="34" class="box-title">Managed Node</text><text x="75" y="57" class="box-text">Run Command ready</text></g>
+  <path d="M360 630 L420 630" class="arrow"/><path d="M705 630 L765 630" class="arrow"/><path d="M1050 630 L1110 630" class="arrow"/><path d="M1415 630 L1480 630" class="arrow"/>
+  <path d="M1560 460 C1560 500 230 500 230 585" class="dash"/>
+
+  <rect x="50" y="730" width="1700" height="210" class="lane"/>
+  <text x="80" y="770" class="lane-title">4. Runtime Deployment, Scaling, and Self-Healing on k3s</text>
+  <g transform="translate(90,800)"><rect width="245" height="90" class="box"/><circle cx="38" cy="45" r="24" class="ssm"/><text x="23" y="52" fill="white" font-size="13" font-family="Arial">SSM</text><text x="75" y="34" class="box-title">Run Command</text><text x="75" y="58" class="box-text">No manual SSH needed</text></g>
+  <g transform="translate(395,800)"><rect width="260" height="90" class="box"/><circle cx="38" cy="45" r="24" class="k8s"/><text x="22" y="52" fill="white" font-size="13" font-family="Arial">k3s</text><text x="75" y="34" class="box-title">Kustomize Apply</text><text x="75" y="58" class="box-text">kubectl apply -k kubernetes/</text></g>
+  <g transform="translate(715,800)"><rect width="260" height="90" class="box"/><circle cx="38" cy="45" r="24" class="k8s"/><text x="20" y="52" fill="white" font-size="13" font-family="Arial">App</text><text x="75" y="34" class="box-title">Zuri Workloads</text><text x="75" y="58" class="box-text">Frontend, backend, services</text></g>
+  <g transform="translate(1035,800)"><rect width="260" height="90" class="box"/><circle cx="38" cy="45" r="24" class="green"/><text x="23" y="52" fill="white" font-size="13" font-family="Arial">+1</text><text x="75" y="34" class="box-title">Timed Scale Job</text><text x="75" y="58" class="box-text">After 3 min: 1 → 2 pods</text></g>
+  <g transform="translate(1355,800)"><rect width="315" height="90" class="box"/><circle cx="38" cy="45" r="24" fill="#f97316"/><text x="22" y="52" fill="white" font-size="13" font-family="Arial">CR</text><text x="75" y="34" class="box-title">Reconciler CronJob</text><text x="75" y="58" class="box-text">Recreates deleted deployments</text></g>
+  <path d="M335 845 L385 845" class="arrow"/><path d="M655 845 L705 845" class="arrow"/><path d="M975 845 L1025 845" class="arrow"/><path d="M1295 845 L1345 845" class="arrow"/>
+  <path d="M1585 670 C1585 720 205 720 205 795" class="dash"/>
+
+  <rect x="50" y="970" width="1700" height="150" class="lane"/>
+  <text x="80" y="1010" class="lane-title">5. Evidence, Endpoint Recovery, and Cleanup</text>
+  <g transform="translate(90,1035)"><rect width="300" height="60" class="box"/><circle cx="35" cy="30" r="20" class="red"/><text x="28" y="36" fill="white" font-size="14" font-family="Arial">!</text><text x="70" y="27" class="box-title">Delete + Failed Curl</text><text x="70" y="47" class="box-text">Shows outage before self-heal</text></g>
+  <g transform="translate(470,1035)"><rect width="300" height="60" class="box"/><circle cx="35" cy="30" r="20" class="green"/><text x="27" y="36" fill="white" font-size="14" font-family="Arial">✓</text><text x="70" y="27" class="box-title">Recovered Endpoint</text><text x="70" y="47" class="box-text">Curl succeeds after recovery</text></g>
+  <g transform="translate(850,1035)"><rect width="315" height="60" class="box"/><circle cx="35" cy="30" r="20" class="github"/><text x="27" y="36" fill="white" font-size="13" font-family="Arial">Log</text><text x="70" y="27" class="box-title">Reviewer Evidence</text><text x="70" y="47" class="box-text">Workflow logs and screenshots</text></g>
+  <g transform="translate(1245,1035)"><rect width="330" height="60" class="box"/><circle cx="35" cy="30" r="20" class="tf"/><text x="23" y="36" fill="white" font-size="13" font-family="Arial">TF</text><text x="70" y="27" class="box-title">Auto Destroy</text><text x="70" y="47" class="box-text">Terraform destroy after 15 minutes</text></g>
+  <path d="M390 1065 L460 1065" class="arrow"/><path d="M770 1065 L840 1065" class="arrow"/><path d="M1165 1065 L1235 1065" class="arrow"/>
+  <path d="M1510 890 C1510 940 230 940 230 1030" class="dash"/>
+</svg>
